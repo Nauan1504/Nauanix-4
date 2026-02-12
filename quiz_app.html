@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Quiz Control Panel</title>
+  <style>
+    :root{
+      --bg:#0f1220; --card:#171a2b; --muted:#8fa1c7; --text:#e8ecf7;
+      --accent:#6ea8fe; --accent2:#7ee787; --danger:#ff6b6b; --warn:#ffd166;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,sans-serif;
+      color:var(--text);
+      background:radial-gradient(1200px 600px at 20% -10%,#1e2240 0,#0f1220 60%), var(--bg);
+      display:flex; justify-content:center; align-items:center; min-height:100vh;
+      padding:20px;
+    }
+    .container{
+      display:grid; grid-template-columns:1.2fr .8fr; gap:20px;
+      width:min(1100px,100%);
+    }
+    .card{
+      background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(255,255,255,.02));
+      border:1px solid rgba(255,255,255,.1); border-radius:18px;
+      padding:18px; box-shadow:0 10px 30px rgba(0,0,0,.25);
+      backdrop-filter:blur(6px);
+    }
+    h1{font-size:20px; margin:0}
+    button, input[type=file], select{
+      border:1px solid rgba(255,255,255,.16); background:#15192c; color:var(--text);
+      padding:10px 14px; border-radius:12px; cursor:pointer; font-weight:600;
+      transition:.15s ease;
+    }
+    button:hover{background:#1a2040}
+    .accent{background:#13213e; border-color:rgba(110,168,254,.5)}
+    .danger{background:#2a1111; border-color:rgba(255,107,107,.4)}
+    .warn{background:#2b240e; border-color:rgba(255,209,102,.5)}
+    .status{
+      margin-top:10px; padding:10px 12px; border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:#10152a; color:var(--muted);
+    }
+    .status.good{color:var(--accent2); border-color:rgba(126,232,135,.35); background:#0f1a12}
+    .status.bad{color:#ffb0b0; border-color:rgba(255,107,107,.35); background:#1f1212}
+    .q-box{margin-top:10px; padding:14px; border-radius:14px; background:var(--card);}
+    .opt{margin-top:8px; padding:10px; border-radius:10px; background:#121528;}
+    #timerBox{
+      margin-top:10px; padding:8px 12px; border-radius:12px;
+      background:#12182f; border:1px solid rgba(126,232,135,.25);
+      width:max-content; color:var(--accent2); font-weight:700;
+    }
+    #answerText{margin-top:8px; font-weight:700; color:var(--accent2);}
+    table{width:100%; border-collapse:separate; border-spacing:0 8px;}
+    th,td{padding:10px 12px; text-align:left}
+    th{color:var(--muted)}
+    tbody tr{background:var(--card)}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Левая колонка -->
+    <div class="card">
+      <h1>Панель ведущего</h1>
+
+      <!-- Загрузка файла -->
+      <div style="margin-top:10px;">
+        <input type="file" id="fileInput" accept=".docx" />
+        <button id="uploadBtn" class="accent">📄 Загрузить вопросы</button>
+      </div>
+
+      <!-- Генерация -->
+      <div style="margin-top:10px;">
+        <input type="text" id="subjectInput" placeholder="Введите тему (например: физика)" style="width:60%">
+        <button id="genBtn" class="accent">🎓 Сгенерировать AI-вопросы</button>
+      </div>
+
+      <!-- Управление -->
+      <div style="margin-top:10px;">
+        <button id="nextBtn" class="accent">Следующий вопрос</button>
+        <button id="resetBtn" class="danger">Сбросить игру</button>
+      </div>
+
+      <div id="statusBox" class="status">Ожидание действий…</div>
+      <div id="timerBox">⏱ Осталось: <span id="timerText">—</span></div>
+
+      <div class="q-box">
+        <div id="questionText">Нажмите «Следующий вопрос»</div>
+        <div id="optionsBox">
+          <div class="opt" id="opt1">1) —</div>
+          <div class="opt" id="opt2">2) —</div>
+          <div class="opt" id="opt3">3) —</div>
+          <div class="opt" id="opt4">4) —</div>
+        </div>
+        <div id="answerText"></div>
+      </div>
+    </div>
+
+    <!-- Правая колонка -->
+    <div class="card">
+      <h1>Таблица очков</h1>
+      <table>
+        <thead><tr><th>Игрок</th><th>Очки</th></tr></thead>
+        <tbody id="scoresBody"><tr><td class="muted">—</td><td class="muted">—</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    const statusBox = document.getElementById("statusBox");
+    const questionText = document.getElementById("questionText");
+    const opts = [1,2,3,4].map(i => document.getElementById("opt"+i));
+    const scoresBody = document.getElementById("scoresBody");
+    const timerText = document.getElementById("timerText");
+    const answerText = document.getElementById("answerText");
+
+    let countdown = null;
+    let timeLeft = 0;
+
+    // === Таймер ===
+    function startTimer(seconds){
+      if (countdown) clearInterval(countdown);
+      timeLeft = seconds;
+      timerText.textContent = `${timeLeft} сек`;
+      countdown = setInterval(()=>{
+        timeLeft--;
+        timerText.textContent = `${timeLeft} сек`;
+        if (timeLeft <= 0){
+          clearInterval(countdown);
+          timerText.textContent = "Время вышло!";
+          showAnswer();
+        }
+      },1000);
+    }
+
+    // === Показ правильного ответа ===
+    async function showAnswer(){
+      const res = await fetch("/answerkey");
+      const data = await res.json();
+      if (data.correct){
+        answerText.textContent = `✅ Правильный ответ: ${data.correct}) ${data.text}`;
+      } else {
+        answerText.textContent = "Ответ недоступен.";
+      }
+    }
+
+    // === Загрузка файла ===
+    document.getElementById("uploadBtn").onclick = async () => {
+      const file = document.getElementById("fileInput").files[0];
+      if (!file) return alert("Выберите .docx файл!");
+      const form = new FormData();
+      form.append("file", file);
+      statusBox.textContent = "⏳ Загрузка...";
+      const res = await fetch("/upload", { method: "POST", body: form });
+      const data = await res.json();
+      if (data.loaded) {
+        statusBox.className="status good";
+        statusBox.textContent = `✅ Загружено ${data.count} вопросов из файла`;
+      } else {
+        statusBox.className="status bad";
+        statusBox.textContent = "Ошибка загрузки файла";
+      }
+    };
+
+    // === Генерация ===
+    document.getElementById("genBtn").onclick = async () => {
+      const subj = document.getElementById("subjectInput").value.trim();
+      if (!subj) return alert("Введите тему!");
+      statusBox.textContent = "🤖 Генерация...";
+      const res = await fetch(`/generate?subject=${encodeURIComponent(subj)}`);
+      const data = await res.json();
+      if (data.generated) {
+        statusBox.className="status good";
+        statusBox.textContent = `✅ Сгенерировано ${data.count} вопросов по теме «${subj}»`;
+      } else {
+        statusBox.className="status bad";
+        statusBox.textContent = "Ошибка генерации";
+      }
+    };
+
+    // === Следующий вопрос ===
+    document.getElementById("nextBtn").onclick = async () => {
+      const res = await fetch("/next");
+      const data = await res.json();
+      answerText.textContent = "";
+      if (data.message){
+        statusBox.className="status bad";
+        statusBox.textContent = data.message;
+        questionText.textContent = "—";
+        opts.forEach((o,i)=>o.textContent=(i+1)+") —");
+        return;
+      }
+      questionText.textContent = data.question;
+      data.options.forEach((t,i)=>opts[i].textContent=(i+1)+") "+t);
+      statusBox.className="status";
+      statusBox.textContent = `Вопрос ${data.questionIndex+1}`;
+      startTimer(data.time || 15);
+    };
+
+    // === Сброс ===
+    document.getElementById("resetBtn").onclick = async () => {
+      await fetch("/reset");
+      statusBox.className="status";
+      statusBox.textContent = "♻️ Игра сброшена";
+      questionText.textContent="Нажмите «Следующий вопрос»";
+      opts.forEach((o,i)=>o.textContent=(i+1)+") —");
+      timerText.textContent = "—";
+      answerText.textContent = "";
+    };
+
+    // === Таблица очков ===
+    async function refreshScores(){
+      const r = await fetch("/scores");
+      const data = await r.json();
+      const rows = Object.entries(data).sort((a,b)=>b[1]-a[1])
+        .map(([p,s])=>`<tr><td>${p}</td><td>${s}</td></tr>`).join("");
+      scoresBody.innerHTML = rows || `<tr><td class="muted">—</td><td class="muted">—</td></tr>`;
+    }
+    setInterval(refreshScores, 2000);
+  </script>
+</body>
+</html>
